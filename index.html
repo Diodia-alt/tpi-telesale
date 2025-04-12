@@ -1,0 +1,380 @@
+
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <?!= include('stylesheet'); ?>
+    <title>Telesales CRM - Agent Dashboard</title>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Telesales CRM</h1>
+        <div class="user-info">
+          <span id="user-name">Loading...</span>
+          <span id="user-email" class="d-none"><?= userEmail ?></span>
+          <div id="performance-container" class="performance-chart mt-2">
+            <canvas id="agent-performance-chart" width="300" height="100"></canvas>
+          </div>
+          <span id="daily-count">Đã nhận: 0/100 khách hàng hôm nay</span>
+          <button id="logout-btn" class="btn btn-sm btn-secondary mt-2">Đăng xuất</button>
+        </div>
+      </header>
+      
+      <main>
+        <div class="card">
+          <h2>Thông tin khách hàng</h2>
+          
+          <div id="no-customer-section">
+            <p class="text-center">Bạn chưa có khách hàng nào được gán. Nhấn nút bên dưới để nhận khách hàng mới.</p>
+            <div class="text-center">
+              <button id="get-customer-btn" class="btn btn-primary">Nhận khách hàng mới</button>
+            </div>
+            <p id="get-customer-message" class="message text-center hidden"></p>
+          </div>
+          
+          <div id="customer-section" class="hidden">
+            <div class="customer-info">
+              <!-- Ẩn ID khách hàng -->
+              <input type="hidden" id="customer-id">
+              <div class="info-row">
+                <div class="label">Tên:</div>
+                <div id="customer-name" class="value"></div>
+              </div>
+              <div class="info-row">
+                <div class="label">SĐT:</div>
+                <div id="customer-phone" class="value">
+                  <a id="phone-link" href="tel:" class="phone-link"></a>
+                </div>
+              </div>
+            </div>
+            
+            <div class="rating-section">
+              <h3>Đánh giá khách hàng</h3>
+              <p>Sau khi liên hệ với khách hàng, vui lòng đánh giá:</p>
+              
+              <!-- Căn giữa các nút đánh giá -->
+              <div class="rating-buttons text-center">
+                <button class="btn btn-primary btn-rating" data-rating="1">1 ⭐</button>
+                <button class="btn btn-primary btn-rating" data-rating="2">2 ⭐</button>
+                <button class="btn btn-primary btn-rating" data-rating="3">3 ⭐</button>
+                <button class="btn btn-danger btn-rating" data-rating="4">Loại ⛔</button>
+              </div>
+              
+              <!-- Thêm trường ghi chú -->
+              <div class="form-group mt-3">
+                <label for="rating-note">Ghi chú:</label>
+                <textarea id="rating-note" class="form-control" rows="2" placeholder="Nhập ghi chú về khách hàng (nếu có)"></textarea>
+              </div>
+              
+              <p id="rating-message" class="message hidden"></p>
+            </div>
+          </div>
+        </div>
+      </main>
+      
+      <footer>
+        <p>&copy; 2025 Telesales CRM</p>
+      </footer>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <script>
+      // Variables
+      let currentCustomer = null;
+      let userEmail = '';
+      let isProcessing = false; // Cờ ngăn thực hiện yêu cầu đồng thời
+      let performanceChart = null;
+      
+      // Initialize page
+      function initPage() {
+        // Get user email from template parameter
+        userEmail = document.getElementById('user-email').textContent.trim();
+        console.log("Using user email from parameter: " + userEmail);
+        
+        // Load user info
+        google.script.run
+          .withSuccessHandler(handleUserInfo)
+          .withFailureHandler(handleError)
+          .getCurrentUserInfo(userEmail);
+          
+        // Check for current assigned customer
+        checkCurrentCustomer();
+        
+        // Khởi tạo biểu đồ hiệu suất
+        initializePerformanceChart();
+        
+        // Add event listeners
+        document.getElementById('get-customer-btn').addEventListener('click', getNewCustomer);
+        
+        // Rating buttons
+        document.querySelectorAll('.btn-rating').forEach(button => {
+          button.addEventListener('click', function() {
+            if (isProcessing) return; // Ngăn thực hiện đồng thời
+            
+            const rating = this.getAttribute('data-rating');
+            submitRating(rating);
+          });
+        });
+        
+        // Set up logout button
+        document.getElementById('logout-btn').addEventListener('click', logout);
+      }
+      
+      // Khởi tạo biểu đồ hiệu suất
+      function initializePerformanceChart() {
+        // Lấy dữ liệu hiệu suất của agent hiện tại
+        google.script.run
+          .withSuccessHandler(function(data) {
+            renderPerformanceChart(data);
+          })
+          .withFailureHandler(handleError)
+          .getAgentPerformanceData(userEmail);
+      }
+      
+      // Vẽ biểu đồ hiệu suất
+      function renderPerformanceChart(data) {
+        const ctx = document.getElementById('agent-performance-chart').getContext('2d');
+        
+        if (performanceChart) {
+          performanceChart.destroy();
+        }
+        
+        performanceChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: data.labels,
+            datasets: [{
+              label: 'Khách hàng đã liên hệ',
+              data: data.contacted,
+              borderColor: '#2196F3',
+              backgroundColor: 'rgba(33, 150, 243, 0.1)',
+              fill: true,
+              tension: 0.4
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                display: false
+              },
+              title: {
+                display: true,
+                text: 'Hiệu suất theo thời gian'
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  precision: 0
+                }
+              }
+            }
+          }
+        });
+      }
+      
+      // Handle user info
+      function handleUserInfo(userInfo) {
+        document.getElementById('user-name').textContent = userInfo.name;
+        
+        // Get daily count
+        google.script.run
+          .withSuccessHandler(handleDailyCount)
+          .withFailureHandler(handleError)
+          .getTodayCustomerCount();
+      }
+      
+      // Handle daily count
+      function handleDailyCount(count) {
+        document.getElementById('daily-count').textContent = 'Đã nhận: ' + count + '/100 khách hàng hôm nay';
+        
+        // Disable get customer button if reached daily limit
+        if (count >= 100) {
+          document.getElementById('get-customer-btn').disabled = true;
+          showMessage('get-customer-message', 'Bạn đã đạt giới hạn 100 khách hàng trong ngày hôm nay.', 'error');
+        }
+      }
+      
+      // Check current customer
+      function checkCurrentCustomer() {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (result.success) {
+              // Show customer info
+              showCustomerInfo(result.customer);
+            }
+          })
+          .withFailureHandler(handleError)
+          .getCurrentAssignedCustomer();
+      }
+      
+      // Get new customer
+      function getNewCustomer() {
+        // Đang xử lý?
+        if (isProcessing) return;
+        isProcessing = true;
+        
+        // Disable button to prevent multiple clicks
+        document.getElementById('get-customer-btn').disabled = true;
+        showMessage('get-customer-message', 'Đang tìm kiếm khách hàng mới...', 'info');
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            isProcessing = false;
+            handleNewCustomer(result);
+          })
+          .withFailureHandler(function(error) {
+            isProcessing = false;
+            document.getElementById('get-customer-btn').disabled = false;
+            showMessage('get-customer-message', 'Lỗi: ' + error, 'error');
+          })
+          .getNewCustomer();
+      }
+      
+      // Handle new customer
+      function handleNewCustomer(result) {
+        document.getElementById('get-customer-btn').disabled = false;
+        
+        if (result.success) {
+          // Show customer info
+          showCustomerInfo(result.customer);
+          
+          // Update daily count
+          google.script.run
+            .withSuccessHandler(handleDailyCount)
+            .withFailureHandler(handleError)
+            .getTodayCustomerCount();
+            
+          // Xóa thông báo trước đó
+          document.getElementById('get-customer-message').classList.add('hidden');
+        } else {
+          showMessage('get-customer-message', result.message, 'error');
+        }
+      }
+      
+      // Show customer info
+      function showCustomerInfo(customer) {
+        currentCustomer = customer;
+        
+        // Set customer info (ID now hidden)
+        document.getElementById('customer-id').value = customer.id;
+        document.getElementById('customer-name').textContent = customer.name;
+        
+        // Set phone number as a clickable link
+        const phoneLink = document.getElementById('phone-link');
+        phoneLink.href = 'tel:' + customer.phone;
+        phoneLink.textContent = customer.phone;
+        
+        // Show customer section, hide no-customer section
+        document.getElementById('customer-section').classList.remove('hidden');
+        document.getElementById('no-customer-section').classList.add('hidden');
+        
+        // Clear any previous rating notes
+        document.getElementById('rating-note').value = '';
+      }
+      
+      // Submit rating
+      function submitRating(rating) {
+        if (!currentCustomer || isProcessing) {
+          return;
+        }
+        
+        isProcessing = true;
+        
+        // Disable rating buttons
+        document.querySelectorAll('.btn-rating').forEach(button => {
+          button.disabled = true;
+        });
+        
+        showMessage('rating-message', 'Đang xử lý đánh giá...', 'info');
+        
+        // Lấy giá trị ghi chú
+        const note = document.getElementById('rating-note').value.trim();
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            isProcessing = false;
+            
+            if (result.success) {
+              showMessage('rating-message', 'Đánh giá thành công!', 'success');
+              
+              // Reset after 2 seconds
+              setTimeout(function() {
+                // Reset customer
+                currentCustomer = null;
+                
+                // Hide customer section, show no-customer section
+                document.getElementById('customer-section').classList.add('hidden');
+                document.getElementById('no-customer-section').classList.remove('hidden');
+                
+                // Clear rating message
+                document.getElementById('rating-message').classList.add('hidden');
+                
+                // Clear rating note
+                document.getElementById('rating-note').value = '';
+                
+                // Enable rating buttons
+                document.querySelectorAll('.btn-rating').forEach(button => {
+                  button.disabled = false;
+                });
+                
+                // Update performance chart
+                initializePerformanceChart();
+              }, 2000);
+            } else {
+              showMessage('rating-message', 'Lỗi: ' + result.message, 'error');
+              
+              // Enable rating buttons
+              document.querySelectorAll('.btn-rating').forEach(button => {
+                button.disabled = false;
+              });
+            }
+          })
+          .withFailureHandler(function(error) {
+            isProcessing = false;
+            handleError(error);
+            
+            // Enable rating buttons
+            document.querySelectorAll('.btn-rating').forEach(button => {
+              button.disabled = false;
+            });
+          })
+          .submitCustomerRating(currentCustomer.id, parseInt(rating), note);
+      }
+      
+      // Logout function
+      function logout() {
+        if (confirm('Bạn có chắc chắn muốn đăng xuất?')) {
+          window.location.href = '?login=true';
+        }
+      }
+      
+      // Show message
+      function showMessage(elementId, message, type) {
+        const element = document.getElementById(elementId);
+        element.textContent = message;
+        element.classList.remove('hidden', 'success', 'error', 'info');
+        element.classList.add(type);
+      }
+      
+      // Handle error
+      function handleError(error) {
+        console.error('Error:', error);
+        // Giới hạn hiển thị toàn bộ lỗi có thể gây ra lỗi UI
+        const errorMessage = error && typeof error === 'object' ? error.message || 'Lỗi không xác định' : error;
+        alert('Đã xảy ra lỗi: ' + errorMessage);
+      }
+      
+      // Initialize on page load
+      document.addEventListener('DOMContentLoaded', function() {
+        initPage();
+      });
+    </script>
+  </body>
+</html>
