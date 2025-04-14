@@ -1,5 +1,5 @@
 // Global constants
-const SPREADSHEET_ID = "1_cR-YlnDApJwCjG2JMvFIwj1UrofAQfbhZK0GUu0Te8"; // You'll need to replace this with your actual spreadsheet ID
+const SPREADSHEET_ID = "1GW1dhNSJIbVUD_YTJQ5QHgHJq68v6iMbRHCLT-nV4k0"; // You'll need to replace this with your actual spreadsheet ID
 const CUSTOMER_SHEET_NAME = "Customers";
 const AGENTS_SHEET_NAME = "Agents";
 const DAILY_LIMITS_SHEET_NAME = "DailyLimits";
@@ -9,30 +9,12 @@ const MAX_CONTACT_ATTEMPTS = 3;
 // Web app endpoints
 function doGet(e) {
   try {
-    // First check if there's a login parameter
-    if (e && e.parameter && e.parameter.login) {
-      return serveLoginPage();
-    }
-
     // Get the active user email - note this may be empty when deployed as "Execute as: Me"
     const userEmail = Session.getActiveUser().getEmail();
     console.log("Active user email from Session: " + userEmail);
 
-    // If we have a userEmail parameter, use that instead
-    const providedEmail =
-      e && e.parameter && e.parameter.userEmail ? e.parameter.userEmail : null;
-    const effectiveEmail =
-      userEmail && userEmail !== "" ? userEmail : providedEmail;
-
-    console.log("Effective email being used: " + effectiveEmail);
-
-    // Check if we have no way to identify the user
-    if (!effectiveEmail) {
-      return serveLoginPage();
-    }
-
     // Check if user is authorized
-    const isAuthorized = isAuthorizedUser(effectiveEmail);
+    const isAuthorized = isAuthorizedUser(userEmail);
     console.log("Is user authorized: " + isAuthorized);
 
     if (!isAuthorized) {
@@ -41,7 +23,7 @@ function doGet(e) {
         "<h1>Unauthorized Access</h1>" +
           "<p>You are not authorized to use this application.</p>" +
           "<p>Email used: <strong>" +
-          effectiveEmail +
+          userEmail +
           "</strong></p>" +
           "<p>Please contact the administrator to get access.</p>" +
           '<p><a href="' +
@@ -53,7 +35,7 @@ function doGet(e) {
     }
 
     // Check if admin or regular user
-    const isAdminUser = isAdmin(effectiveEmail);
+    const isAdminUser = isAdmin(userEmail);
     console.log("Is user admin: " + isAdminUser);
 
     // Create HTML template with user email as a parameter
@@ -69,7 +51,7 @@ function doGet(e) {
     }
 
     // Set user email parameter for the template
-    template.userEmail = effectiveEmail;
+    template.userEmail = userEmail;
 
     return template
       .evaluate()
@@ -88,17 +70,6 @@ function doGet(e) {
       .setTitle("Telesales CRM - Error")
       .addMetaTag("viewport", "width=device-width, initial-scale=1");
   }
-}
-
-// Serve login page
-function serveLoginPage() {
-  const template = HtmlService.createTemplateFromFile("login");
-  template.scriptUrl = getScriptUrl();
-
-  return template
-    .evaluate()
-    .setTitle("Telesales CRM - Login")
-    .addMetaTag("viewport", "width=device-width, initial-scale=1");
 }
 
 // Get script URL
@@ -257,7 +228,7 @@ function getCurrentAssignedCustomer() {
   return { success: false };
 }
 
-// Get new customer - Updated to handle max 3 attempts per customer and max 1 call per agent
+// Get new customer - Updated with locking mechanism and weekly call limit
 function getNewCustomer() {
   try {
     const userEmail = getCurrentUserEmail();
@@ -292,7 +263,7 @@ function getNewCustomer() {
               Session.getScriptTimeZone(),
               "yyyy-MM-dd"
             )
-          : limitDate;
+          : limitDate; // Kiem 
 
       if (
         limitDateStr === todayStr &&
@@ -328,16 +299,10 @@ function getNewCustomer() {
     const contact2ColIndex = headers.indexOf("Contact2");
     const contact3ColIndex = headers.indexOf("Contact3");
 
-    // First try to find a customer with:
-    // 1. Status 'New' and ContactCount < MAX_CONTACT_ATTEMPTS
-    // or
-    // 2. Status 'Contacted' but ContactCount < MAX_CONTACT_ATTEMPTS and not contacted today
-    // and
-    // 3. Not previously contacted by this agent
-
     // Array to hold suitable customers
     const eligibleCustomers = [];
 
+    // Find eligible customers
     for (let i = 1; i < customersData.length; i++) {
       const status = customersData[i][statusColIndex];
       let contactCount = customersData[i][contactCountColIndex] || 0;
@@ -365,7 +330,7 @@ function getNewCustomer() {
         continue;
       }
 
-      // For contacted customers, check if they were contacted today
+      // For contacted customers, check if they were contacted within the last 7 days
       if (status === "Contacted") {
         const lastContactTimestampCol = headers.indexOf(
           "Contact" + contactCount + "Timestamp"
@@ -374,10 +339,9 @@ function getNewCustomer() {
           const lastContactTime = customersData[i][lastContactTimestampCol];
           if (lastContactTime instanceof Date) {
             const lastContactDate = new Date(lastContactTime);
-            lastContactDate.setHours(0, 0, 0, 0);
-
-            // Skip if contacted today
-            if (lastContactDate.getTime() === today.getTime()) {
+            const daysSinceLastContact = (today - lastContactDate) / (1000 * 60 * 60 * 24);
+            // Skip if contacted within the last 7 days
+            if (daysSinceLastContact < 7) {
               continue;
             }
           }
@@ -403,36 +367,60 @@ function getNewCustomer() {
       };
     }
 
-    // Choose a random customer from eligible ones
-    const randomIndex = Math.floor(Math.random() * eligibleCustomers.length);
-    const selectedCustomer = eligibleCustomers[randomIndex];
+    // Use LockService to prevent concurrent assignments
+    const lock = LockService.getScriptLock();
+    try {
+      // Try to acquire the lock, wait up to 10 seconds
+      lock.waitLock(10000);
 
-    // Update the customer as assigned
-    const row = selectedCustomer.row;
+      // Re-read the customer data to ensure no changes since last read
+      const updatedCustomersData = customersSheet.getDataRange().getValues();
 
-    // Set status to Assigned
-    customersSheet.getRange(row, statusColIndex + 1).setValue("Assigned");
+      // Re-verify the selected customer is still eligible
+      const randomIndex = Math.floor(Math.random() * eligibleCustomers.length);
+      const selectedCustomer = eligibleCustomers[randomIndex];
+      const row = selectedCustomer.row;
 
-    // Set assigned to
-    customersSheet.getRange(row, assignedToColIndex + 1).setValue(userEmail);
+      // Check if the customer is still unassigned and eligible
+      const currentStatus = updatedCustomersData[row - 1][statusColIndex];
+      const currentAssignedTo = updatedCustomersData[row - 1][assignedToColIndex];
 
-    // Set assigned timestamp
-    const now = new Date();
-    customersSheet.getRange(row, assignedTimestampColIndex + 1).setValue(now);
+      if (currentStatus === "Assigned" || currentAssignedTo !== "") {
+        return {
+          success: false,
+          message: "Khách hàng đã được gán cho người khác. Vui lòng thử lại.",
+        };
+      }
 
-    // Update agent's daily count
-    const todayRow = getOrCreateDailyLimitRow(userEmail);
-    const currentDailyCount = todayRow.count || 0;
-    limitsSheet.getRange(todayRow.row, 3).setValue(currentDailyCount + 1);
+      // Update the customer as assigned
+      customersSheet.getRange(row, statusColIndex + 1).setValue("Assigned");
+      customersSheet.getRange(row, assignedToColIndex + 1).setValue(userEmail);
+      const now = new Date();
+      customersSheet.getRange(row, assignedTimestampColIndex + 1).setValue(now);
 
-    return {
-      success: true,
-      customer: {
-        id: selectedCustomer.id,
-        name: selectedCustomer.name,
-        phone: selectedCustomer.phone,
-      },
-    };
+      // Update agent's daily count
+      const todayRow = getOrCreateDailyLimitRow(userEmail);
+      const currentDailyCount = todayRow.count || 0;
+      limitsSheet.getRange(todayRow.row, 3).setValue(currentDailyCount + 1);
+
+      return {
+        success: true,
+        customer: {
+          id: selectedCustomer.id,
+          name: selectedCustomer.name,
+          phone: selectedCustomer.phone,
+        },
+      };
+    } catch (lockError) {
+      console.error("Lock acquisition failed: " + lockError);
+      return {
+        success: false,
+        message: "Hệ thống đang bận. Vui lòng thử lại sau.",
+      };
+    } finally {
+      // Release the lock
+      lock.releaseLock();
+    }
   } catch (error) {
     console.error("Error in getNewCustomer: " + error);
     return { success: false, message: "Lỗi: " + error };
