@@ -388,9 +388,9 @@ function getNewCustomer() {
       const cache = CacheService.getScriptCache()
       // Re-read the customer data to ensure no changes since last read
       SpreadsheetApp.flush()
-      const updatedCustomersData = customersSheet.getDataRange().getValues();
+      // const updatedCustomersData = customersSheet.getDataRange().getValues();
       // log lại dữ liệu  updatedCustomersData
-      console.log(updatedCustomersData.slice(1))
+      // console.log(updatedCustomersData.slice(1))
       let availableCustomers = [...eligibleCustomers]
 
       while (availableCustomers.length > 0) {
@@ -413,6 +413,7 @@ function getNewCustomer() {
         cache.put(cacheKey, userEmail, 10)
 
         // Re-verify data before writing. Kiểm tra liệu hàng này có thực sự trống (có nguy cơ lỗi tương tự như lấy dữ liệu bằng getDataRange().getValues())
+        SpreadsheetApp.flush()
         const updatedRow = customersSheet.getRange(row, 1, 1, customersSheet.getLastColumn()).getValues()[0];
         currentStatus = updatedRow[statusColIndex]
         currentAssigned = updatedRow[assignedToColIndex]
@@ -438,10 +439,10 @@ function getNewCustomer() {
 
           // Gán thành c
           cache.remove(cacheKey) // Đã gán thành công
-          SpreadsheetApp.flush()
+          // SpreadsheetApp.flush()
           // const finalCustomer = ss.getSheetByName(CUSTOMER_SHEET_NAME);
-          const finalData = customersSheet.getDataRange().getValues()
-          console.log(finalData.slice(1))
+          // const finalData = customersSheet.getDataRange().getValues()
+          // console.log(finalData.slice(1))
 
           // Update agent's daily count // Cập nhật dailyCount
           const todayRow = getOrCreateDailyLimitRow(userEmail);
@@ -1381,7 +1382,7 @@ function resetCustomerSheet() {
     const customerData = customerSheet.getDataRange().getValues();
 
     for (let i = 1; i < customerData.length; i++) {
-      console.log(i)
+      // console.log(i)
       const values = [['New','',  '',  '',  '',  0,   '',  '',  '',  '',  '',  '',  '',  '',  '',  '',  '',  '',  '']];
       customerSheet.getRange(i+1, statusColIndex + 1, 1, 19).setValues(values);
     }
