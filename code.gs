@@ -90,7 +90,7 @@ function isAuthorizedUser(email) {
   }
 
   try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID); 
     const agentsSheet = ss.getSheetByName(AGENTS_SHEET_NAME);
     const agentsData = agentsSheet.getDataRange().getValues();
 
@@ -193,21 +193,21 @@ function getCurrentUserInfo(email) {
 
 // Get current assigned customer
 function getCurrentAssignedCustomer() {
-  const userEmail = getCurrentUserEmail();
+  const userEmail = getCurrentUserEmail(); // Lấy email agent
 
-  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  const customersSheet = ss.getSheetByName(CUSTOMER_SHEET_NAME);
-  const customerData = customersSheet.getDataRange().getValues();
-  const headers = customerData[0];
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID); // mở spreadsheet
+  const customersSheet = ss.getSheetByName(CUSTOMER_SHEET_NAME); // Lấy sheet customer 
+  const customerData = customersSheet.getDataRange().getValues(); // Lấy toàn bộ giá trị 
+  const headers = customerData[0]; // Lấy hàng đầu tiên chứa col của sheet
 
   // Find column indexes
-  const idColIndex = headers.indexOf("CustomerID");
-  const nameColIndex = headers.indexOf("Name");
-  const phoneColIndex = headers.indexOf("Phone");
-  const statusColIndex = headers.indexOf("Status");
-  const assignedToColIndex = headers.indexOf("AssignedTo");
+  const idColIndex = headers.indexOf("CustomerID"); // Lấy index column "CustomerID"
+  const nameColIndex = headers.indexOf("Name"); // Lấy index column "Name"
+  const phoneColIndex = headers.indexOf("Phone"); // Lấy index column "Phone"
+  const statusColIndex = headers.indexOf("Status"); // Lấy index column "Status"
+  const assignedToColIndex = headers.indexOf("AssignedTo"); // Lấy index column "AssignedTo"
 
-  // Find assigned customer
+  // Find assigned customer nếu tìm thành công customer đang có status asigned và assignTo bằng với emailUser hiện tại -> trả về true, {id, name, phone} | trả về false
   for (let i = 1; i < customerData.length; i++) {
     if (
       customerData[i][statusColIndex] === "Assigned" &&
@@ -229,13 +229,15 @@ function getCurrentAssignedCustomer() {
 }
 
 // Get new customer - Updated with locking mechanism and weekly call limit
+
 function getNewCustomer() {
   try {
-    const userEmail = getCurrentUserEmail();
+    
+    const userEmail = getCurrentUserEmail(); // email agent cố định
 
-    // Get today's date at midnight for comparison
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Get today's date at midnight for comparison  lấy ra ngày tháng hiện tại và loại bỏ giá trị s, m, h
+    const today = new Date(); 
+    today.setHours(0, 0, 0, 0); 
 
     // First check if the agent has reached their daily limit
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -255,7 +257,7 @@ function getNewCustomer() {
       const limitDate = limitsData[i][0];
       const limitEmail = limitsData[i][1];
 
-      // If date is a Date object, format it
+      // If date is a Date object, format it Kiểm tra cột date nếu thuộc kiểu Date thì trả về format yyyy-MM-dd | giữ nguyên (thêm bước xử lý lỗi sai kiểu)
       const limitDateStr =
         limitDate instanceof Date
           ? Utilities.formatDate(
@@ -263,7 +265,7 @@ function getNewCustomer() {
               Session.getScriptTimeZone(),
               "yyyy-MM-dd"
             )
-          : limitDate; // Kiem 
+          : limitDate; 
 
       if (
         limitDateStr === todayStr &&
@@ -281,13 +283,13 @@ function getNewCustomer() {
           "Bạn đã đạt giới hạn hàng ngày. Vui lòng thử lại vào ngày mai.",
       };
     }
-
     // Get customers data
     const customersSheet = ss.getSheetByName(CUSTOMER_SHEET_NAME);
     const customersData = customersSheet.getDataRange().getValues();
     const headers = customersData[0];
-
-    // Find column indexes
+    
+    
+    // Find column indexes lấy index các cột sẽ dùng: (customer_id, name, phone, status, assigned_to, assigned_time, contact_count)
     const idColIndex = headers.indexOf("CustomerID");
     const nameColIndex = headers.indexOf("Name");
     const phoneColIndex = headers.indexOf("Phone");
@@ -298,26 +300,28 @@ function getNewCustomer() {
     const contact1ColIndex = headers.indexOf("Contact1");
     const contact2ColIndex = headers.indexOf("Contact2");
     const contact3ColIndex = headers.indexOf("Contact3");
-
-    // Array to hold suitable customers
+    // customersSheet.getRange(10, statusColIndex + 1).setValue("New");
+    // customersSheet.getRange(10, assignedToColIndex + 1).setValue("");
+    // customersSheet.getRange(10, assignedTimestampColIndex + 1).setValue("");
+    // return;
+    // Array to hold suitable customers mảng chứa khách hợp lệ có thể chia cho agents
     const eligibleCustomers = [];
-
-    // Find eligible customers
+    // Find eligible customers điều kiện: contactCount < 3, chưa được agent này contact, thời gian từ lần contact cuối là 1 tuần trước, 
     for (let i = 1; i < customersData.length; i++) {
-      const status = customersData[i][statusColIndex];
-      let contactCount = customersData[i][contactCountColIndex] || 0;
+      const status = customersData[i][statusColIndex]; // status (new, assigned, contact)
+      let contactCount = customersData[i][contactCountColIndex]; // lấy contactCount
 
-      // Skip if already reached max contact attempts
+      // Skip if already reached max contact attempts (kiểm tra đã gọi đủ 3 lần chưa)
       if (contactCount >= MAX_CONTACT_ATTEMPTS) {
         continue;
       }
 
-      // Check if this agent has already contacted this customer
+      // Check if this agent has already contacted this customer (kiểm agent đã liên hệ ngừoi này chưa )
       let alreadyContactedByThisAgent = false;
       for (let j = 1; j <= contactCount; j++) {
         const contactAgentCol = headers.indexOf("Contact" + j + "Agent");
         if (
-          contactAgentCol > -1 &&
+          contactAgentCol > -1 && // đảm bảo lấy được chỉ số cột
           customersData[i][contactAgentCol] === userEmail
         ) {
           alreadyContactedByThisAgent = true;
@@ -326,11 +330,11 @@ function getNewCustomer() {
       }
 
       // Skip if already contacted by this agent
-      if (alreadyContactedByThisAgent) {
+      if (alreadyContactedByThisAgent) { // nếu đã liên hệ bởi agent này, continue sang customer tiếp theo
         continue;
       }
 
-      // For contacted customers, check if they were contacted within the last 7 days
+      // For contacted customers, check if they were contacted within the last 7 days (thời gian từ lần contact cuối là 1 tuần trước)
       if (status === "Contacted") {
         const lastContactTimestampCol = headers.indexOf(
           "Contact" + contactCount + "Timestamp"
@@ -348,7 +352,7 @@ function getNewCustomer() {
         }
       }
 
-      // This customer is eligible
+      // This customer is eligible thoả 3 điều kiện, thêm vào danh sách agent hợp lệ
       eligibleCustomers.push({
         row: i + 1, // 1-based index for sheet
         id: customersData[i][idColIndex],
@@ -368,49 +372,103 @@ function getNewCustomer() {
     }
 
     // Use LockService to prevent concurrent assignments
+    console.log(userEmail)
     const lock = LockService.getScriptLock();
     try {
       // Try to acquire the lock, wait up to 10 seconds
-      lock.waitLock(10000);
+      console.log("ask key", new Date())
+      lock.waitLock(10000); // cố gắng nhảy vào đây trong 10 giây
+      console.log("get key", new Date())
 
+      // Load lại spreadsheet và customerSheet
+      // const new_ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      // const customersSheet = new_ss.getSheetByName(CUSTOMER_SHEET_NAME);
+
+      // Cache
+      const cache = CacheService.getScriptCache()
       // Re-read the customer data to ensure no changes since last read
+      SpreadsheetApp.flush()
       const updatedCustomersData = customersSheet.getDataRange().getValues();
+      // log lại dữ liệu  updatedCustomersData
+      console.log(updatedCustomersData.slice(1))
+      let availableCustomers = [...eligibleCustomers]
 
-      // Re-verify the selected customer is still eligible
-      const randomIndex = Math.floor(Math.random() * eligibleCustomers.length);
-      const selectedCustomer = eligibleCustomers[randomIndex];
-      const row = selectedCustomer.row;
+      while (availableCustomers.length > 0) {
+        // Select a random customer. Chọn random 1 khách hàng đạt yêu cầu
+        randomIdx = Math.floor(Math.random() * availableCustomers.length);
+        selectedCustomer = availableCustomers[randomIdx]
+        row = selectedCustomer.row
+        console.log("row", row)
+        console.log("customer", selectedCustomer)
+        const cacheKey = `assigning ${selectedCustomer.id}`; // Đặt cacheKey
 
-      // Check if the customer is still unassigned and eligible
-      const currentStatus = updatedCustomersData[row - 1][statusColIndex];
-      const currentAssignedTo = updatedCustomersData[row - 1][assignedToColIndex];
+        // Check cache. Nếu cacheKey tồn tại nghĩa là khách hàng đang được gán
+        if (cache.get(cacheKey)) {
+          console.log(`Customer ${selectedCustome.id} is now being assgined by another agent.`);
+          availableCustomers.splice(randomIdx, 1);
+          continue;
+        }
+        
+        // Mark being assigned customer. CacheKey chưa tồn tại, tạo cache
+        cache.put(cacheKey, userEmail, 10)
 
-      if (currentStatus === "Assigned" || currentAssignedTo !== "") {
-        return {
-          success: false,
-          message: "Khách hàng đã được gán cho người khác. Vui lòng thử lại.",
-        };
+        // Re-verify data before writing. Kiểm tra liệu hàng này có thực sự trống (có nguy cơ lỗi tương tự như lấy dữ liệu bằng getDataRange().getValues())
+        const updatedRow = customersSheet.getRange(row, 1, 1, customersSheet.getLastColumn()).getValues()[0];
+        currentStatus = updatedRow[statusColIndex]
+        currentAssigned = updatedRow[assignedToColIndex]
+
+        // Log lại dữ liệu 
+        // console.log("status: ", currentStatus)
+        // console.log("assigned: ", currentAssigned)
+
+        if (currentStatus !== "Assigned" || currentAssigned === "") {  // Nếu xác định chưa assigned thì gán giá trị ["Assigned", userEmail, now]
+          // Updated customer as assigned
+          const now = new Date();
+          const values = [["Assigned", userEmail, now]];
+          customersSheet.getRange(row, statusColIndex + 1, 1, 3).setValues(values);
+
+          SpreadsheetApp.flush()
+          const finalRow = customersSheet.getRange(row, 1, 1, customersSheet.getLastColumn()).getValues()[0]; // Kiểm tra lại lần cuối 
+          if (finalRow[statusColIndex] !== "Assigned" || finalRow[assignedToColIndex] !== userEmail) { // Nếu status không phải Assigned và assignTo không phải emailUser thì remove cache, đổi khách.
+            cache.remove(cacheKey)
+            console.log(`Lỗi trùng lặp: khách hang ${selectedCustomer.id} đang được gán cho ${finalRow[assignedToColIndex]}`)
+            availableCustomers.splice(randomIdx, 1)
+            continue;
+          }
+
+          // Gán thành c
+          cache.remove(cacheKey) // Đã gán thành công
+          SpreadsheetApp.flush()
+          // const finalCustomer = ss.getSheetByName(CUSTOMER_SHEET_NAME);
+          const finalData = customersSheet.getDataRange().getValues()
+          console.log(finalData.slice(1))
+
+          // Update agent's daily count // Cập nhật dailyCount
+          const todayRow = getOrCreateDailyLimitRow(userEmail);
+          const currentDailyCount = todayRow.count || 0;
+          limitsSheet.getRange(todayRow.row, 3).setValue(currentDailyCount + 1);
+
+          // Return
+          return {
+            success: true,
+            customer: {
+              id: selectedCustomer.id,
+              name: selectedCustomer.name,
+              phone: selectedCustomer.phone,
+            },
+          };
+        }
+        // Xoá cache nếu không gán được
+        cache.remove(cacheKey)
+        availableCustomers.splice(randomIdx, 1);
+
       }
 
-      // Update the customer as assigned
-      customersSheet.getRange(row, statusColIndex + 1).setValue("Assigned");
-      customersSheet.getRange(row, assignedToColIndex + 1).setValue(userEmail);
-      const now = new Date();
-      customersSheet.getRange(row, assignedTimestampColIndex + 1).setValue(now);
-
-      // Update agent's daily count
-      const todayRow = getOrCreateDailyLimitRow(userEmail);
-      const currentDailyCount = todayRow.count || 0;
-      limitsSheet.getRange(todayRow.row, 3).setValue(currentDailyCount + 1);
-
+      
       return {
-        success: true,
-        customer: {
-          id: selectedCustomer.id,
-          name: selectedCustomer.name,
-          phone: selectedCustomer.phone,
-        },
-      };
+        success: false,
+        message: "Không còn khách hàng hợp lệ."
+      }
     } catch (lockError) {
       console.error("Lock acquisition failed: " + lockError);
       return {
@@ -419,6 +477,7 @@ function getNewCustomer() {
       };
     } finally {
       // Release the lock
+      console.log("finish", new Date())
       lock.releaseLock();
     }
   } catch (error) {
@@ -653,7 +712,7 @@ function getAgentPerformanceData(agentEmail) {
   }
 }
 
-// Get today's customer count - Updated as requested
+// Get today's customer count - Updated as requested Lấy ra số lượng customer đã gọi 
 function getTodayCustomerCount() {
   const userEmail = getCurrentUserEmail();
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1312,4 +1371,18 @@ function checkAgentAccess(email) {
     console.error("Error in checkAgentAccess: " + error);
     return { success: false, message: error.toString() };
   }
+}
+
+// REset Cumtomer sheet function
+function resetCustomerSheet() {
+    const statusColIndex = 3
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const customerSheet = ss.getSheetByName(CUSTOMER_SHEET_NAME);
+    const customerData = customerSheet.getDataRange().getValues();
+
+    for (let i = 1; i < customerData.length; i++) {
+      console.log(i)
+      const values = [['New','',  '',  '',  '',  0,   '',  '',  '',  '',  '',  '',  '',  '',  '',  '',  '',  '',  '']];
+      customerSheet.getRange(i+1, statusColIndex + 1, 1, 19).setValues(values);
+    }
 }
